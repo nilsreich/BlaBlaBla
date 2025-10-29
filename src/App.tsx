@@ -6,7 +6,7 @@ import type { Status } from "./types";
 import Header from "./components/Header";
 import StatusDisplay from "./components/StatusDisplay";
 import RecordButton from "./components/RecordButton";
-import ResultCard from "./components/ResultCard";
+import EditableResultCard from "./components/EditableResultCard";
 import { Mic, Volume2, Download } from "./components/icons";
 
 // Singleton instances for models to avoid reloading
@@ -24,6 +24,7 @@ function App() {
   const [error, setError] = useState("");
   const [showDownloadInfo, setShowDownloadInfo] = useState(true);
   const [loadingProgress, setLoadingProgress] = useState(0);
+  const [downloadedMB, setDownloadedMB] = useState(0);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallButton, setShowInstallButton] = useState(false);
@@ -32,6 +33,7 @@ function App() {
   const audioChunksRef = useRef<Blob[]>([]);
   const isRecordingRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     loadModels();
@@ -56,45 +58,52 @@ function App() {
   const loadModels = async () => {
     if (whisperPipeline && translationPipeline && ttsInstance) {
       setStatus("ready");
-      setStatusMessage("Bereit - Halte den Button gedrückt");
+      setStatusMessage("Bereit - Button gedrückt halten");
       setShowDownloadInfo(false);
       return;
     }
 
     setStatus("loading");
     setLoadingProgress(0);
-    setStatusMessage("Modelle werden geladen (ca. 486 MB)...");
+    setDownloadedMB(0);
+    setStatusMessage("Modelle werden geladen (ca. 247 MB)...");
 
     try {
       if (!whisperPipeline) {
         setStatusMessage("Lade Spracherkennung (Whisper)... 1/3");
+        setDownloadedMB(25);
         setLoadingProgress(10);
         whisperPipeline = await pipeline(
           "automatic-speech-recognition",
           "Xenova/whisper-tiny"
         );
+        setDownloadedMB(82);
         setLoadingProgress(33);
       }
       if (!translationPipeline) {
         setStatusMessage("Lade Übersetzer (Opus-MT)... 2/3");
+        setDownloadedMB(99);
         setLoadingProgress(40);
         translationPipeline = await pipeline(
           "translation",
           "Xenova/opus-mt-de-en"
         );
+        setDownloadedMB(163);
         setLoadingProgress(66);
       }
       if (!ttsInstance) {
         setStatusMessage("Lade Sprachausgabe (Kokoro)... 3/3");
+        setDownloadedMB(173);
         setLoadingProgress(70);
         ttsInstance = await KokoroTTS.from_pretrained(
           "onnx-community/Kokoro-82M-ONNX",
           { dtype: "q8" }
         );
+        setDownloadedMB(247);
         setLoadingProgress(100);
       }
       setStatus("ready");
-      setStatusMessage("Bereit - Halte den Button gedrückt");
+      setStatusMessage("Bereit - Button gedrückt halten");
       setShowDownloadInfo(false);
       setError("");
     } catch (err) {
@@ -132,7 +141,7 @@ function App() {
 
       recorder.start();
       setStatus("recording");
-      setStatusMessage("Aufnahme läuft...");
+      setStatusMessage("🎤 Aufnahme läuft - Taste loslassen zum Beenden");
     } catch (err) {
       console.error("Mikrofon-Fehler:", err);
       setError(
@@ -154,20 +163,20 @@ function App() {
     isRecordingRef.current = false;
     mediaRecorderRef.current.stop();
     setStatus("processing");
-    setStatusMessage("Verarbeite Aufnahme...");
+    setStatusMessage("⏳ Verarbeite Aufnahme...");
   };
 
   const processRecording = async () => {
     if (audioChunksRef.current.length === 0) {
       setStatus("ready");
-      setStatusMessage("Leere Aufnahme. Versuche es erneut.");
+      setStatusMessage("⚠️ Leere Aufnahme - Bitte erneut versuchen");
       return;
     }
     try {
       const audioBlob = new Blob(audioChunksRef.current, { type: "audio/wav" });
       const audioUrl = URL.createObjectURL(audioBlob);
 
-      setStatusMessage("Transkribiere (dauert ein paar Sekunden)...");
+      setStatusMessage("🎯 Transkribiere Audio...");
       const transcriptResult = await whisperPipeline(audioUrl, {
         language: "de",
         chunk_length_s: 30,
@@ -177,17 +186,17 @@ function App() {
 
       if (!transcriptText) {
         setStatus("ready");
-        setStatusMessage("Keine Sprache erkannt. Versuche es erneut.");
+        setStatusMessage("⚠️ Keine Sprache erkannt - Bitte erneut versuchen");
         return;
       }
 
-      setStatusMessage("Übersetze Text (dauert ein paar Sekunden)...");
+      setStatusMessage("🌐 Übersetze ins Englische...");
       const translationResult = await translationPipeline(transcriptText);
       const translatedText = translationResult[0]?.translation_text || "";
       setTranslation(translatedText);
 
       if (translatedText && ttsInstance) {
-        setStatusMessage("Generiere Sprachausgabe (dauert ein paar Sekunden)...");
+        setStatusMessage("🔊 Generiere Sprachausgabe...");
         const audio = await ttsInstance.generate(translatedText, {
           voice: "af_sky",
         });
@@ -207,12 +216,12 @@ function App() {
       }
 
       setStatus("ready");
-      setStatusMessage("Fertig! Bereit für die nächste Aufnahme.");
+      setStatusMessage("✅ Fertig! Bereit für nächste Aufnahme");
     } catch (err) {
       console.error("Verarbeitungsfehler:", err);
       setError("Fehler bei der Verarbeitung der Aufnahme.");
       setStatus("error");
-      setStatusMessage("Verarbeitungsfehler");
+      setStatusMessage("❌ Verarbeitungsfehler");
     }
   };
 
@@ -230,6 +239,106 @@ function App() {
       audioRef.current.currentTime = 0;
       audioRef.current.play();
     }
+  };
+
+  const handleTranscriptionChange = async (newTranscription: string) => {
+    setTranscription(newTranscription);
+    
+    // Clear any pending updates
+    if (updateTimeoutRef.current) {
+      clearTimeout(updateTimeoutRef.current);
+    }
+    
+    if (!newTranscription.trim()) {
+      setTranslation("");
+      setAudioUrl(null);
+      return;
+    }
+
+    // Debounce the update - wait for user to finish typing
+    updateTimeoutRef.current = setTimeout(async () => {
+      try {
+        setStatusMessage("🌐 Aktualisiere Übersetzung...");
+        
+        const translationResult = await translationPipeline(newTranscription);
+        const translatedText = translationResult[0]?.translation_text || "";
+        setTranslation(translatedText);
+
+        if (translatedText && ttsInstance) {
+          setStatusMessage("🔊 Generiere Sprachausgabe...");
+          const audio = await ttsInstance.generate(translatedText, {
+            voice: "af_sky",
+          });
+          const blob = new Blob([audio.toWav()], { type: "audio/wav" });
+          const url = URL.createObjectURL(blob);
+          setAudioUrl(url);
+          
+          // Cleanup old audio reference
+          if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current = null;
+          }
+          
+          // Create new audio (don't auto-play on edit)
+          audioRef.current = new Audio(url);
+        }
+
+        setStatusMessage("✅ Aktualisiert!");
+        setTimeout(() => {
+          setStatusMessage("Bereit - Button gedrückt halten");
+        }, 2000);
+      } catch (err) {
+        console.error("Update-Fehler:", err);
+        setError("Fehler beim Aktualisieren der Übersetzung.");
+      }
+    }, 1000); // Wait 1 second after user stops typing
+  };
+
+  const handleTranslationChange = async (newTranslation: string) => {
+    setTranslation(newTranslation);
+    
+    // Clear any pending updates
+    if (updateTimeoutRef.current) {
+      clearTimeout(updateTimeoutRef.current);
+    }
+    
+    if (!newTranslation.trim()) {
+      setAudioUrl(null);
+      return;
+    }
+
+    // Debounce the TTS update
+    updateTimeoutRef.current = setTimeout(async () => {
+      try {
+        setStatusMessage("🔊 Generiere Sprachausgabe...");
+        
+        if (ttsInstance) {
+          const audio = await ttsInstance.generate(newTranslation, {
+            voice: "af_sky",
+          });
+          const blob = new Blob([audio.toWav()], { type: "audio/wav" });
+          const url = URL.createObjectURL(blob);
+          setAudioUrl(url);
+          
+          // Cleanup old audio reference
+          if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current = null;
+          }
+          
+          // Create new audio (don't auto-play on edit)
+          audioRef.current = new Audio(url);
+        }
+
+        setStatusMessage("✅ Sprachausgabe aktualisiert!");
+        setTimeout(() => {
+          setStatusMessage("Bereit - Button gedrückt halten");
+        }, 2000);
+      } catch (err) {
+        console.error("TTS-Update-Fehler:", err);
+        setError("Fehler beim Aktualisieren der Sprachausgabe.");
+      }
+    }, 1000); // Wait 1 second after user stops typing
   };
 
   const handleInstallClick = async () => {
@@ -273,7 +382,7 @@ function App() {
               Erstmaliger Download
             </h3>
             <p className="text-xs text-slate-400 mb-2">
-              KI-Modelle (ca. 486 MB) werden heruntergeladen und lokal gespeichert.
+              KI-Modelle werden heruntergeladen und lokal gespeichert.
             </p>
             
             {/* Progress Bar */}
@@ -283,11 +392,16 @@ function App() {
                 style={{ width: `${loadingProgress}%` }}
               />
             </div>
-            <p className="text-xs text-slate-500 text-right mb-2">
-              {loadingProgress}%
-            </p>
+            <div className="flex justify-between items-center">
+              <p className="text-xs text-slate-500">
+                {downloadedMB} / 247 MB
+              </p>
+              <p className="text-xs text-slate-400 font-medium">
+                {loadingProgress}%
+              </p>
+            </div>
             
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-500 mt-2">
               Danach funktioniert die App komplett offline!
             </p>
           </div>
@@ -313,19 +427,23 @@ function App() {
         </div>
 
         <div className="space-y-3 flex-shrink-0 mt-auto pb-2">
-          <ResultCard
+          <EditableResultCard
             icon={<Mic className="w-3.5 h-3.5 text-slate-500" />}
             title="Erkannter Text"
-            text={transcription || "Warte auf Aufnahme..."}
+            text={transcription}
             variant="transcription"
+            onTextChange={handleTranscriptionChange}
+            placeholder="Warte auf Aufnahme..."
           />
-          <ResultCard
+          <EditableResultCard
             icon={<Volume2 className="w-3.5 h-3.5 text-purple-400" />}
             title="Übersetzung"
-            text={translation || "Warte auf Übersetzung..."}
+            text={translation}
             variant="translation"
             showPlayButton={!!audioUrl}
             onPlay={playAudio}
+            onTextChange={handleTranslationChange}
+            placeholder="Warte auf Übersetzung..."
           />
         </div>
       </main>
