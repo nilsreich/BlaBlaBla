@@ -12,15 +12,15 @@ interface StatusDisplayProps {
 const StatusIcon: React.FC<{ status: Status }> = ({ status }) => {
   switch (status) {
     case 'loading':
-      return <Loader2 className="w-5 h-5 animate-spin text-blue-400" />;
+      return <Loader2 className="w-4 h-4 animate-spin text-blue-400" />;
     case 'ready':
-      return <CheckCircle2 className="w-5 h-5 text-green-400" />;
+      return <CheckCircle2 className="w-4 h-4 text-green-400" />;
     case 'recording':
-      return <Mic className="w-5 h-5 animate-pulse text-red-400" />;
+      return <Mic className="w-4 h-4 animate-pulse text-red-400" />;
     case 'processing':
-      return <Loader2 className="w-5 h-5 animate-spin text-purple-400" />;
+      return <Loader2 className="w-4 h-4 animate-spin text-purple-400" />;
     case 'error':
-      return <AlertCircle className="w-5 h-5 text-red-400" />;
+      return <AlertCircle className="w-4 h-4 text-red-400" />;
     default:
       return null;
   }
@@ -28,13 +28,13 @@ const StatusIcon: React.FC<{ status: Status }> = ({ status }) => {
 
 const StatusDisplay: React.FC<StatusDisplayProps> = ({ status, message, error }) => {
   return (
-    <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-4 w-full border border-white/10 mb-6 min-h-[60px] flex flex-col justify-center">
-      <div className="flex items-center gap-3">
+    <div className="bg-white/5 rounded-xl p-3 w-full border border-white/10 mb-4 min-h-[52px] flex flex-col justify-center">
+      <div className="flex items-center gap-2.5">
         <StatusIcon status={status} />
-        <span className="text-sm font-medium text-slate-300">{message}</span>
+        <span className="text-xs font-medium text-slate-400">{message}</span>
       </div>
       {error && (
-        <div className="mt-3 bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-sm text-red-300">
+        <div className="mt-2 bg-red-500/10 border border-red-500/30 rounded-lg p-2 text-xs text-red-300">
           {error}
         </div>
       )}

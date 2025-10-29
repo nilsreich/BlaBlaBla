@@ -17,39 +17,39 @@ const RecordButton: React.FC<RecordButtonProps> = (props) => {
   const isRecording = status === "recording";
 
   return (
-    <div className="flex justify-center items-center my-4 h-48 w-48">
+    <div className="flex justify-center items-center my-6">
       <button
         {...handlers}
         disabled={isDisabled}
+        aria-label={isRecording ? "Aufnahme stoppen" : "Aufnahme starten"}
         className={`
-          relative w-36 h-36 rounded-full transition-all duration-300 ease-in-out
+          relative w-28 h-28 rounded-full transition-all duration-200
           flex items-center justify-center text-white
-          focus:outline-none focus:ring-4 focus:ring-purple-500/50
+          focus:outline-none focus:ring-2 focus:ring-purple-500/50
           disabled:opacity-50 disabled:cursor-not-allowed
           ${
             isRecording
-              ? "bg-red-500 scale-110 shadow-[0_0_30px_5px] shadow-red-500/50"
-              : "bg-purple-600 hover:scale-105 active:scale-95 shadow-lg shadow-purple-500/30"
+              ? "bg-red-500 scale-105 shadow-[0_0_20px_3px] shadow-red-500/40"
+              : "bg-purple-600 hover:scale-105 active:scale-95 shadow-lg shadow-purple-500/20"
           }
         `}
       >
-        {/* Pulsing effect for recording state */}
         {isRecording && (
-          <div className="absolute inset-0 rounded-full bg-red-500 animate-ping-slow opacity-60"></div>
+          <div className="absolute inset-0 rounded-full bg-red-500 animate-ping-slow opacity-50" />
         )}
 
         <div className="relative z-10">
           {isDisabled ? (
-            <Loader2 className="w-14 h-14 animate-spin" />
+            <Loader2 className="w-12 h-12 animate-spin" />
           ) : (
-            <Mic className="w-14 h-14" />
+            <Mic className="w-12 h-12" />
           )}
         </div>
       </button>
       <style>{`
         @keyframes ping-slow {
           75%, 100% {
-            transform: scale(1.5);
+            transform: scale(1.4);
             opacity: 0;
           }
         }

@@ -7,6 +7,8 @@ import {
   CheckCircle2,
   AlertCircle,
   ArrowRightLeft,
+  Play,
+  Download,
 } from 'lucide-react';
 
 // This file centralizes icon imports, making it easy to swap icon libraries in the future.
@@ -18,4 +20,6 @@ export {
   CheckCircle2,
   AlertCircle,
   ArrowRightLeft,
+  Play,
+  Download,
 };

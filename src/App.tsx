@@ -7,7 +7,7 @@ import Header from "./components/Header";
 import StatusDisplay from "./components/StatusDisplay";
 import RecordButton from "./components/RecordButton";
 import ResultCard from "./components/ResultCard";
-import { Mic, Volume2 } from "./components/icons";
+import { Mic, Volume2, Download } from "./components/icons";
 
 // Singleton instances for models to avoid reloading
 let whisperPipeline: any = null;
@@ -23,13 +23,33 @@ function App() {
   const [translation, setTranslation] = useState("");
   const [error, setError] = useState("");
   const [showDownloadInfo, setShowDownloadInfo] = useState(true);
+  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallButton, setShowInstallButton] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const isRecordingRef = useRef(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     loadModels();
+    
+    // Listen for the beforeinstallprompt event
+    const handleBeforeInstallPrompt = (e: any) => {
+      // Prevent the default install prompt
+      e.preventDefault();
+      // Store the event for later use
+      setDeferredPrompt(e);
+      setShowInstallButton(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -42,29 +62,36 @@ function App() {
     }
 
     setStatus("loading");
+    setLoadingProgress(0);
     setStatusMessage("Modelle werden geladen (ca. 486 MB)...");
 
     try {
       if (!whisperPipeline) {
-        setStatusMessage("Lade Spracherkennung (Whisper)...");
+        setStatusMessage("Lade Spracherkennung (Whisper)... 1/3");
+        setLoadingProgress(10);
         whisperPipeline = await pipeline(
           "automatic-speech-recognition",
           "Xenova/whisper-tiny"
         );
+        setLoadingProgress(33);
       }
       if (!translationPipeline) {
-        setStatusMessage("Lade Übersetzer (Opus-MT)...");
+        setStatusMessage("Lade Übersetzer (Opus-MT)... 2/3");
+        setLoadingProgress(40);
         translationPipeline = await pipeline(
           "translation",
           "Xenova/opus-mt-de-en"
         );
+        setLoadingProgress(66);
       }
       if (!ttsInstance) {
-        setStatusMessage("Lade Sprachausgabe (Kokoro)...");
+        setStatusMessage("Lade Sprachausgabe (Kokoro)... 3/3");
+        setLoadingProgress(70);
         ttsInstance = await KokoroTTS.from_pretrained(
           "onnx-community/Kokoro-82M-ONNX",
           { dtype: "q8" }
         );
+        setLoadingProgress(100);
       }
       setStatus("ready");
       setStatusMessage("Bereit - Halte den Button gedrückt");
@@ -85,6 +112,7 @@ function App() {
     setError("");
     setTranscription("");
     setTranslation("");
+    setAudioUrl(null);
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -165,7 +193,17 @@ function App() {
         });
         const blob = new Blob([audio.toWav()], { type: "audio/wav" });
         const url = URL.createObjectURL(blob);
-        new Audio(url).play();
+        setAudioUrl(url);
+        
+        // Cleanup old audio reference
+        if (audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current = null;
+        }
+        
+        // Create and play audio
+        audioRef.current = new Audio(url);
+        audioRef.current.play();
       }
 
       setStatus("ready");
@@ -187,34 +225,83 @@ function App() {
     stopRecording();
   };
 
+  const playAudio = () => {
+    if (audioUrl && audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.play();
+    }
+  };
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+
+    // Show the install prompt
+    deferredPrompt.prompt();
+
+    // Wait for the user's response
+    const { outcome } = await deferredPrompt.userChoice;
+    
+    if (outcome === 'accepted') {
+      console.log('User accepted the install prompt');
+    }
+
+    // Clear the deferred prompt
+    setDeferredPrompt(null);
+    setShowInstallButton(false);
+  };
+
   return (
-    <div className="min-h-screen bg-[#131314] text-white flex flex-col items-center p-4">
-      <main className="container mx-auto max-w-2xl w-full flex flex-col items-center justify-center flex-grow">
-        <Header />
+    <div className="h-screen overflow-hidden bg-[#0a0a0b] text-white flex flex-col p-3">
+      <main className="container mx-auto max-w-lg w-full h-full flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between mb-4 flex-shrink-0">
+          <Header />
+          {showInstallButton && (
+            <button
+              onClick={handleInstallClick}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 rounded-lg text-xs font-medium transition-colors"
+              aria-label="App installieren"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Installieren</span>
+            </button>
+          )}
+        </div>
 
         {showDownloadInfo && status === "loading" && (
-          <div className="w-full max-w-md mb-6 bg-blue-500/10 backdrop-blur-xl rounded-2xl p-6 border border-blue-500/30">
-            <h3 className="text-lg font-semibold text-blue-300 mb-2">
+          <div className="mb-3 bg-blue-500/5 rounded-xl p-3 border border-blue-500/20 flex-shrink-0">
+            <h3 className="text-sm font-semibold text-blue-300 mb-2">
               Erstmaliger Download
             </h3>
-            <p className="text-sm text-slate-300 mb-2">
-              Die KI-Modelle (ca. 486 MB) werden heruntergeladen und lokal gespeichert. 
-              Dies geschieht nur beim ersten Besuch.
+            <p className="text-xs text-slate-400 mb-2">
+              KI-Modelle (ca. 486 MB) werden heruntergeladen und lokal gespeichert.
             </p>
-            <p className="text-xs text-slate-400">
+            
+            {/* Progress Bar */}
+            <div className="w-full bg-slate-800/50 rounded-full h-2 mb-1">
+              <div 
+                className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-300 ease-out"
+                style={{ width: `${loadingProgress}%` }}
+              />
+            </div>
+            <p className="text-xs text-slate-500 text-right mb-2">
+              {loadingProgress}%
+            </p>
+            
+            <p className="text-xs text-slate-500">
               Danach funktioniert die App komplett offline!
             </p>
           </div>
         )}
 
-        <div className="w-full max-w-md flex flex-col items-center">
+        <div className="flex-shrink-0">
           <StatusDisplay
             status={status}
             message={statusMessage}
             error={error}
           />
+        </div>
 
-
+        <div className="flex-shrink-0">
           <RecordButton
             status={status}
             onMouseDown={startRecording}
@@ -225,18 +312,20 @@ function App() {
           />
         </div>
 
-        <div className="w-full max-w-md mt-4 space-y-4">
+        <div className="space-y-3 flex-shrink-0 mt-auto pb-2">
           <ResultCard
-            icon={<Mic className="w-4 h-4 text-slate-400" />}
+            icon={<Mic className="w-3.5 h-3.5 text-slate-500" />}
             title="Erkannter Text"
             text={transcription || "Warte auf Aufnahme..."}
             variant="transcription"
           />
           <ResultCard
-            icon={<Volume2 className="w-4 h-4 text-purple-300" />}
+            icon={<Volume2 className="w-3.5 h-3.5 text-purple-400" />}
             title="Übersetzung"
             text={translation || "Warte auf Übersetzung..."}
             variant="translation"
+            showPlayButton={!!audioUrl}
+            onPlay={playAudio}
           />
         </div>
       </main>
