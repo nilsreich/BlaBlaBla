@@ -1,0 +1,21 @@
+
+import {
+  Mic,
+  Languages,
+  Volume2,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  ArrowRightLeft,
+} from 'lucide-react';
+
+// This file centralizes icon imports, making it easy to swap icon libraries in the future.
+export {
+  Mic,
+  Languages,
+  Volume2,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  ArrowRightLeft,
+};
