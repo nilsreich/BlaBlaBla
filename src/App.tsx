@@ -22,6 +22,7 @@ function App() {
   const [transcription, setTranscription] = useState("");
   const [translation, setTranslation] = useState("");
   const [error, setError] = useState("");
+  const [showDownloadInfo, setShowDownloadInfo] = useState(true);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -36,11 +37,12 @@ function App() {
     if (whisperPipeline && translationPipeline && ttsInstance) {
       setStatus("ready");
       setStatusMessage("Bereit - Halte den Button gedrückt");
+      setShowDownloadInfo(false);
       return;
     }
 
     setStatus("loading");
-    setStatusMessage("Modelle werden geladen...");
+    setStatusMessage("Modelle werden geladen (ca. 486 MB)...");
 
     try {
       if (!whisperPipeline) {
@@ -66,6 +68,7 @@ function App() {
       }
       setStatus("ready");
       setStatusMessage("Bereit - Halte den Button gedrückt");
+      setShowDownloadInfo(false);
       setError("");
     } catch (err) {
       console.error("Fehler beim Laden der Modelle:", err);
@@ -136,7 +139,7 @@ function App() {
       const audioBlob = new Blob(audioChunksRef.current, { type: "audio/wav" });
       const audioUrl = URL.createObjectURL(audioBlob);
 
-      setStatusMessage("Transkribiere...");
+      setStatusMessage("Transkribiere (dauert ein paar Sekunden)...");
       const transcriptResult = await whisperPipeline(audioUrl, {
         language: "de",
         chunk_length_s: 30,
@@ -150,13 +153,13 @@ function App() {
         return;
       }
 
-      setStatusMessage("Übersetze Text...");
+      setStatusMessage("Übersetze Text (dauert ein paar Sekunden)...");
       const translationResult = await translationPipeline(transcriptText);
       const translatedText = translationResult[0]?.translation_text || "";
       setTranslation(translatedText);
 
       if (translatedText && ttsInstance) {
-        setStatusMessage("Generiere Sprachausgabe...");
+        setStatusMessage("Generiere Sprachausgabe (dauert ein paar Sekunden)...");
         const audio = await ttsInstance.generate(translatedText, {
           voice: "af_sky",
         });
@@ -189,12 +192,29 @@ function App() {
       <main className="container mx-auto max-w-2xl w-full flex flex-col items-center justify-center flex-grow">
         <Header />
 
+        {showDownloadInfo && status === "loading" && (
+          <div className="w-full max-w-md mb-6 bg-blue-500/10 backdrop-blur-xl rounded-2xl p-6 border border-blue-500/30">
+            <h3 className="text-lg font-semibold text-blue-300 mb-2">
+              Erstmaliger Download
+            </h3>
+            <p className="text-sm text-slate-300 mb-2">
+              Die KI-Modelle (ca. 486 MB) werden heruntergeladen und lokal gespeichert. 
+              Dies geschieht nur beim ersten Besuch.
+            </p>
+            <p className="text-xs text-slate-400">
+              Danach funktioniert die App komplett offline!
+            </p>
+          </div>
+        )}
+
         <div className="w-full max-w-md flex flex-col items-center">
           <StatusDisplay
             status={status}
             message={statusMessage}
             error={error}
           />
+
+
           <RecordButton
             status={status}
             onMouseDown={startRecording}
@@ -205,26 +225,20 @@ function App() {
           />
         </div>
 
-        {(transcription || translation) && (
-          <div className="w-full max-w-md mt-4 space-y-4">
-            {transcription && (
-              <ResultCard
-                icon={<Mic className="w-4 h-4 text-slate-400" />}
-                title="Erkannter Text"
-                text={transcription}
-                variant="transcription"
-              />
-            )}
-            {translation && (
-              <ResultCard
-                icon={<Volume2 className="w-4 h-4 text-purple-300" />}
-                title="Übersetzung"
-                text={translation}
-                variant="translation"
-              />
-            )}
-          </div>
-        )}
+        <div className="w-full max-w-md mt-4 space-y-4">
+          <ResultCard
+            icon={<Mic className="w-4 h-4 text-slate-400" />}
+            title="Erkannter Text"
+            text={transcription || "Warte auf Aufnahme..."}
+            variant="transcription"
+          />
+          <ResultCard
+            icon={<Volume2 className="w-4 h-4 text-purple-300" />}
+            title="Übersetzung"
+            text={translation || "Warte auf Übersetzung..."}
+            variant="translation"
+          />
+        </div>
       </main>
     </div>
   );
