@@ -26,6 +26,19 @@ let ttsInstance: any = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let ocrPipeline: any = null;
 
+// Supported languages
+const SUPPORTED_LANGUAGES = [
+  { code: 'de', name: 'Deutsch', flag: '🇩🇪' },
+  { code: 'en', name: 'English', flag: '🇺🇸' },
+  { code: 'en-GB', name: 'English (UK)', flag: '🇬🇧' },
+  { code: 'es', name: 'Español', flag: '🇪🇸' },
+  { code: 'fr', name: 'Français', flag: '🇫🇷' },
+  { code: 'hi', name: 'हिन्दी', flag: '🇮🇳' },
+  { code: 'it', name: 'Italiano', flag: '🇮🇹' },
+  { code: 'ja', name: '日本語', flag: '🇯🇵' },
+  { code: 'pt-BR', name: 'Português (BR)', flag: '🇧🇷' },
+];
+
 function App() {
   const [status, setStatus] = useState<Status>("idle");
   const [statusMessage, setStatusMessage] = useState(
@@ -41,10 +54,9 @@ function App() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallButton, setShowInstallButton] = useState(false);
-  // Language states - currently using fixed languages (de -> en)
-  // Uncomment when implementing language selection UI:
-  // const [sourceLang, setSourceLang] = useState("de");
-  const [targetLang] = useState("en");
+  // Language selection states
+  const [sourceLang, setSourceLang] = useState("de");
+  const [targetLang, setTargetLang] = useState("en");
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -115,7 +127,7 @@ function App() {
         setLoadingProgress(55);
         ocrPipeline = await pipeline(
           "image-to-text",
-          "Xenova/granite-docling-258m"
+          "onnx-community/granite-docling-258M-ONNX"
         );
         setDownloadedMB(247);
         setLoadingProgress(75);
@@ -206,8 +218,23 @@ function App() {
       const audioUrl = URL.createObjectURL(audioBlob);
 
       setStatusMessage("🎯 Transkribiere Audio...");
+      // Map language codes to Whisper language codes
+      const whisperLangMap: { [key: string]: string } = {
+        'de': 'german',
+        'en': 'english',
+        'en-GB': 'english',
+        'es': 'spanish',
+        'fr': 'french',
+        'hi': 'hindi',
+        'it': 'italian',
+        'ja': 'japanese',
+        'pt-BR': 'portuguese',
+      };
+      const whisperLang = whisperLangMap[sourceLang] || 'english';
+      
       const transcriptResult = await whisperPipeline(audioUrl, {
         chunk_length_s: 30,
+        language: whisperLang,
       });
       const transcriptText = transcriptResult.text?.trim() || "";
       setTranscription(transcriptText);
@@ -218,10 +245,27 @@ function App() {
         return;
       }
 
-      setStatusMessage("🌐 Übersetze...");
-      const translationResult = await translationPipeline(transcriptText);
-      const translatedText = translationResult[0]?.translation_text || "";
-      setTranslation(translatedText);
+      // Check if translation is needed
+      if (sourceLang === targetLang) {
+        // Same language, no translation needed
+        setTranslation(transcriptText);
+      } else {
+        setStatusMessage("🌐 Übersetze...");
+        // Note: Current model only supports de->en
+        // For other language pairs, we'll use the original text
+        if (sourceLang === 'de' && targetLang === 'en') {
+          const translationResult = await translationPipeline(transcriptText);
+          const translatedText = translationResult[0]?.translation_text || "";
+          setTranslation(translatedText);
+        } else {
+          // For other language combinations, copy the original text
+          // TODO: Load appropriate translation models for other language pairs
+          setTranslation(transcriptText);
+          setStatusMessage("ℹ️ Übersetzung für diese Sprachkombination noch nicht verfügbar");
+        }
+      }
+
+      const translatedText = translation || transcriptText;
 
       if (translatedText) {
         const ttsUrl = await generateTTS(translatedText, targetLang);
@@ -529,7 +573,12 @@ function App() {
   };
 
   const handleSwapLanguages = () => {
-    // Tausche Sprachen und Texte
+    // Tausche Sprachen
+    const tempLang = sourceLang;
+    setSourceLang(targetLang);
+    setTargetLang(tempLang);
+    
+    // Tausche auch die Texte
     const tempText = transcription;
     setTranscription(translation);
     setTranslation(tempText);
@@ -556,23 +605,41 @@ function App() {
       />
 
       {/* 1. Header (Sprachauswahl) */}
-      <header className="flex justify-around items-center p-4 border-b border-gray-700 shadow-md">
-        <button className="text-base font-semibold py-2 px-6 bg-gray-800 rounded-full text-white hover:bg-gray-700 transition-colors">
-          Deutsch
-        </button>
+      <header className="flex justify-around items-center p-4 border-b border-gray-700 shadow-md gap-2">
+        {/* Source Language Selector */}
+        <select
+          value={sourceLang}
+          onChange={(e) => setSourceLang(e.target.value)}
+          className="text-base font-semibold py-2 px-4 bg-gray-800 rounded-full text-white hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+        >
+          {SUPPORTED_LANGUAGES.map(lang => (
+            <option key={lang.code} value={lang.code}>
+              {lang.flag} {lang.name}
+            </option>
+          ))}
+        </select>
         
         {/* Pfeil-Tausch-Icon */}
         <button 
           onClick={handleSwapLanguages}
-          className="text-gray-400 hover:text-white transition-colors"
+          className="text-gray-400 hover:text-white transition-colors flex-shrink-0"
           aria-label="Sprachen tauschen"
         >
           <ArrowRightLeft className="w-6 h-6" />
         </button>
         
-        <button className="text-base font-semibold py-2 px-6 bg-gray-800 rounded-full text-white hover:bg-gray-700 transition-colors">
-          Englisch
-        </button>
+        {/* Target Language Selector */}
+        <select
+          value={targetLang}
+          onChange={(e) => setTargetLang(e.target.value)}
+          className="text-base font-semibold py-2 px-4 bg-gray-800 rounded-full text-white hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+        >
+          {SUPPORTED_LANGUAGES.map(lang => (
+            <option key={lang.code} value={lang.code}>
+              {lang.flag} {lang.name}
+            </option>
+          ))}
+        </select>
       </header>
 
       {/* Loading Progress */}
