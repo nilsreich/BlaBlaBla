@@ -23,6 +23,8 @@ let whisperPipeline: any = null;
 let translationPipeline: any = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let ttsInstance: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let ocrPipeline: any = null;
 
 function App() {
   const [status, setStatus] = useState<Status>("idle");
@@ -39,12 +41,15 @@ function App() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallButton, setShowInstallButton] = useState(false);
+  const [sourceLang, setSourceLang] = useState("de");
+  const [targetLang, setTargetLang] = useState("en");
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const isRecordingRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     loadModels();
@@ -67,7 +72,7 @@ function App() {
   }, []);
 
   const loadModels = async () => {
-    if (whisperPipeline && translationPipeline && ttsInstance) {
+    if (whisperPipeline && translationPipeline && ttsInstance && ocrPipeline) {
       setStatus("ready");
       setStatusMessage("Bereit - Button gedrückt halten");
       setShowDownloadInfo(false);
@@ -77,40 +82,51 @@ function App() {
     setStatus("loading");
     setLoadingProgress(0);
     setDownloadedMB(0);
-    setStatusMessage("Modelle werden geladen (ca. 247 MB)...");
+    setStatusMessage("Modelle werden geladen (ca. 330 MB)...");
 
     try {
       if (!whisperPipeline) {
-        setStatusMessage("Lade Spracherkennung (Whisper)... 1/3");
+        setStatusMessage("Lade Spracherkennung (Whisper)... 1/4");
         setDownloadedMB(25);
-        setLoadingProgress(10);
+        setLoadingProgress(8);
         whisperPipeline = await pipeline(
           "automatic-speech-recognition",
           "Xenova/whisper-small"
         );
         setDownloadedMB(82);
-        setLoadingProgress(33);
+        setLoadingProgress(25);
       }
       if (!translationPipeline) {
-        setStatusMessage("Lade Übersetzer (Opus-MT)... 2/3");
+        setStatusMessage("Lade Übersetzer (Opus-MT)... 2/4");
         setDownloadedMB(99);
-        setLoadingProgress(40);
+        setLoadingProgress(30);
         translationPipeline = await pipeline(
           "translation",
           "Xenova/opus-mt-de-en"
         );
         setDownloadedMB(163);
-        setLoadingProgress(66);
+        setLoadingProgress(50);
+      }
+      if (!ocrPipeline) {
+        setStatusMessage("Lade OCR (Granite Docling)... 3/4");
+        setDownloadedMB(180);
+        setLoadingProgress(55);
+        ocrPipeline = await pipeline(
+          "image-to-text",
+          "Xenova/granite-docling-258m"
+        );
+        setDownloadedMB(247);
+        setLoadingProgress(75);
       }
       if (!ttsInstance) {
-        setStatusMessage("Lade Sprachausgabe (Kokoro)... 3/3");
-        setDownloadedMB(173);
-        setLoadingProgress(70);
+        setStatusMessage("Lade Sprachausgabe (Kokoro)... 4/4");
+        setDownloadedMB(257);
+        setLoadingProgress(78);
         ttsInstance = await KokoroTTS.from_pretrained(
           "onnx-community/Kokoro-82M-ONNX",
           { dtype: "q8" }
         );
-        setDownloadedMB(247);
+        setDownloadedMB(330);
         setLoadingProgress(100);
       }
       setStatus("ready");
@@ -189,7 +205,6 @@ function App() {
 
       setStatusMessage("🎯 Transkribiere Audio...");
       const transcriptResult = await whisperPipeline(audioUrl, {
-        language: "de",
         chunk_length_s: 30,
       });
       const transcriptText = transcriptResult.text?.trim() || "";
@@ -201,29 +216,23 @@ function App() {
         return;
       }
 
-      setStatusMessage("🌐 Übersetze ins Englische...");
+      setStatusMessage("🌐 Übersetze...");
       const translationResult = await translationPipeline(transcriptText);
       const translatedText = translationResult[0]?.translation_text || "";
       setTranslation(translatedText);
 
-      if (translatedText && ttsInstance) {
-        setStatusMessage("🔊 Generiere Sprachausgabe...");
-        const audio = await ttsInstance.generate(translatedText, {
-          voice: "af_sky",
-        });
-        const blob = new Blob([audio.toWav()], { type: "audio/wav" });
-        const url = URL.createObjectURL(blob);
-        setAudioUrl(url);
-        
-        // Cleanup old audio reference
-        if (audioRef.current) {
-          audioRef.current.pause();
-          audioRef.current = null;
+      if (translatedText) {
+        const ttsUrl = await generateTTS(translatedText, targetLang);
+        if (ttsUrl) {
+          setAudioUrl(ttsUrl);
+          // Cleanup old audio reference
+          if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current = null;
+          }
+          // Create new audio (don't auto-play)
+          audioRef.current = new Audio(ttsUrl);
         }
-        
-        // Create and play audio
-        audioRef.current = new Audio(url);
-        audioRef.current.play();
       }
 
       setStatus("ready");
@@ -252,6 +261,143 @@ function App() {
     }
   };
 
+  // Helper function to get Kokoro voice based on target language
+  const getKokoroVoice = (lang: string): string | null => {
+    const kokoroLanguages: { [key: string]: string } = {
+      'en': 'af_sky',     // American English
+      'en-US': 'af_sky',
+      'en-GB': 'bf_emma', // British English
+      'es': 'ef_bella',   // Spanish
+      'fr': 'ff_marie',   // French
+      'hi': 'hf_riya',    // Hindi
+      'it': 'if_lucia',   // Italian
+      'ja': 'jf_yuki',    // Japanese
+      'pt': 'pf_lara',    // Brazilian Portuguese
+      'pt-BR': 'pf_lara',
+    };
+    return kokoroLanguages[lang] || null;
+  };
+
+  // Generate TTS using Kokoro or Web Speech API
+  const generateTTS = async (text: string, lang: string): Promise<string | null> => {
+    const kokoroVoice = getKokoroVoice(lang);
+    
+    try {
+      if (kokoroVoice && ttsInstance) {
+        // Use Kokoro TTS
+        setStatusMessage("🔊 Generiere Sprachausgabe (Kokoro)...");
+        const audio = await ttsInstance.generate(text, {
+          voice: kokoroVoice,
+        });
+        const blob = new Blob([audio.toWav()], { type: "audio/wav" });
+        return URL.createObjectURL(blob);
+      } else {
+        // Use Web Speech API
+        setStatusMessage("🔊 Generiere Sprachausgabe (Browser)...");
+        return await generateWebSpeechTTS(text, lang);
+      }
+    } catch (err) {
+      console.error("TTS-Fehler:", err);
+      return null;
+    }
+  };
+
+  // Generate TTS using Web Speech API
+  const generateWebSpeechTTS = (text: string, lang: string): Promise<string | null> => {
+    return new Promise((resolve) => {
+      if (!('speechSynthesis' in window)) {
+        console.error('Web Speech API nicht unterstützt');
+        resolve(null);
+        return;
+      }
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = lang;
+      
+      // Try to find a voice that matches the language
+      const voices = speechSynthesis.getVoices();
+      const matchingVoice = voices.find(voice => voice.lang.startsWith(lang));
+      if (matchingVoice) {
+        utterance.voice = matchingVoice;
+      }
+
+      // Web Speech API doesn't provide direct audio file access
+      // So we'll just trigger the speech and return null for audioUrl
+      // The speech will play directly through the API
+      speechSynthesis.speak(utterance);
+      resolve(null);
+    });
+  };
+
+  // Handle camera/image upload for OCR
+  const handleCameraClick = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setStatus("processing");
+    setError("");
+    setTranscription("");
+    setTranslation("");
+    setAudioUrl(null);
+
+    try {
+      setStatusMessage("📷 Lese Bild...");
+      const imageUrl = URL.createObjectURL(file);
+
+      setStatusMessage("🔍 Erkenne Text im Bild...");
+      const result = await ocrPipeline(imageUrl);
+      const extractedText = result[0]?.generated_text?.trim() || "";
+      
+      URL.revokeObjectURL(imageUrl);
+
+      if (!extractedText) {
+        setStatus("ready");
+        setStatusMessage("⚠️ Kein Text im Bild gefunden");
+        return;
+      }
+
+      setTranscription(extractedText);
+
+      setStatusMessage("🌐 Übersetze Text...");
+      const translationResult = await translationPipeline(extractedText);
+      const translatedText = translationResult[0]?.translation_text || "";
+      setTranslation(translatedText);
+
+      if (translatedText) {
+        const audioUrl = await generateTTS(translatedText, targetLang);
+        if (audioUrl) {
+          setAudioUrl(audioUrl);
+          // Cleanup old audio reference
+          if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current = null;
+          }
+          // Create new audio (don't auto-play)
+          audioRef.current = new Audio(audioUrl);
+        }
+      }
+
+      setStatus("ready");
+      setStatusMessage("✅ Fertig! Bereit für nächste Aufnahme");
+    } catch (err) {
+      console.error("OCR-Fehler:", err);
+      setError("Fehler beim Lesen des Bildes.");
+      setStatus("error");
+      setStatusMessage("❌ OCR-Fehler");
+    }
+
+    // Reset file input
+    if (event.target) {
+      event.target.value = '';
+    }
+  };
+
   const handleTranscriptionChange = async (newTranscription: string) => {
     setTranscription(newTranscription);
     
@@ -275,23 +421,18 @@ function App() {
         const translatedText = translationResult[0]?.translation_text || "";
         setTranslation(translatedText);
 
-        if (translatedText && ttsInstance) {
-          setStatusMessage("🔊 Generiere Sprachausgabe...");
-          const audio = await ttsInstance.generate(translatedText, {
-            voice: "af_sky",
-          });
-          const blob = new Blob([audio.toWav()], { type: "audio/wav" });
-          const url = URL.createObjectURL(blob);
-          setAudioUrl(url);
-          
-          // Cleanup old audio reference
-          if (audioRef.current) {
-            audioRef.current.pause();
-            audioRef.current = null;
+        if (translatedText) {
+          const ttsUrl = await generateTTS(translatedText, targetLang);
+          if (ttsUrl) {
+            setAudioUrl(ttsUrl);
+            // Cleanup old audio reference
+            if (audioRef.current) {
+              audioRef.current.pause();
+              audioRef.current = null;
+            }
+            // Create new audio (don't auto-play on edit)
+            audioRef.current = new Audio(ttsUrl);
           }
-          
-          // Create new audio (don't auto-play on edit)
-          audioRef.current = new Audio(url);
         }
 
         setStatusMessage("✅ Aktualisiert!");
@@ -321,24 +462,16 @@ function App() {
     // Debounce the TTS update
     updateTimeoutRef.current = setTimeout(async () => {
       try {
-        setStatusMessage("🔊 Generiere Sprachausgabe...");
-        
-        if (ttsInstance) {
-          const audio = await ttsInstance.generate(newTranslation, {
-            voice: "af_sky",
-          });
-          const blob = new Blob([audio.toWav()], { type: "audio/wav" });
-          const url = URL.createObjectURL(blob);
-          setAudioUrl(url);
-          
+        const ttsUrl = await generateTTS(newTranslation, targetLang);
+        if (ttsUrl) {
+          setAudioUrl(ttsUrl);
           // Cleanup old audio reference
           if (audioRef.current) {
             audioRef.current.pause();
             audioRef.current = null;
           }
-          
           // Create new audio (don't auto-play on edit)
-          audioRef.current = new Audio(url);
+          audioRef.current = new Audio(ttsUrl);
         }
 
         setStatusMessage("✅ Sprachausgabe aktualisiert!");
@@ -410,6 +543,16 @@ function App() {
 
   return (
     <div className="bg-gray-900 text-gray-200 flex flex-col h-screen">
+      {/* Hidden file input for camera/image upload */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handleImageUpload}
+        className="hidden"
+      />
+
       {/* 1. Header (Sprachauswahl) */}
       <header className="flex justify-around items-center p-4 border-b border-gray-700 shadow-md">
         <button className="text-base font-semibold py-2 px-6 bg-gray-800 rounded-full text-white hover:bg-gray-700 transition-colors">
@@ -437,7 +580,7 @@ function App() {
             Erstmaliger Download
           </h3>
           <p className="text-xs text-gray-400 mb-2">
-            KI-Modelle werden heruntergeladen ({downloadedMB} / 247 MB)
+            KI-Modelle werden heruntergeladen ({downloadedMB} / 330 MB)
           </p>
           <div className="w-full bg-gray-700 rounded-full h-2">
             <div 
@@ -506,19 +649,18 @@ function App() {
 
         {/* Ausgabebereich */}
         <div className="relative flex-1 flex flex-col bg-gray-800 rounded-xl p-4 shadow-lg">
-          {/* Ausgabe-Text */}
-          <div className="flex-1 text-white text-2xl overflow-y-auto scrollbar-thin">
-            {translation ? (
-              <span>{translation}</span>
-            ) : (
-              <span className="text-gray-400">
-                {status === "loading" ? "Modelle werden geladen..." : 
-                 status === "recording" ? "Aufnahme läuft..." :
-                 status === "processing" ? "Verarbeite..." : 
-                 "Übersetzung..."}
-              </span>
-            )}
-          </div>
+          {/* Ausgabe-Text als editierbares Textarea */}
+          <textarea 
+            value={translation}
+            onChange={(e) => handleTranslationChange(e.target.value)}
+            className="flex-1 bg-transparent text-white text-2xl w-full resize-none focus:outline-none placeholder-gray-500 overflow-y-auto scrollbar-thin" 
+            placeholder={
+              status === "loading" ? "Modelle werden geladen..." : 
+              status === "recording" ? "Aufnahme läuft..." :
+              status === "processing" ? "Verarbeite..." : 
+              "Übersetzung..."
+            }
+          />
           
           {/* Icons unten (Lautsprecher, Kopieren, Teilen, Vollbild) */}
           <div className="flex justify-between items-center pt-2">
@@ -578,8 +720,9 @@ function App() {
       <nav className="flex justify-around items-center p-4 border-t border-gray-700 bg-gray-900">
         {/* Kamera */}
         <button 
-          disabled
-          className="flex flex-col items-center text-gray-500 cursor-not-allowed opacity-50"
+          onClick={handleCameraClick}
+          disabled={status === "loading" || status === "processing"}
+          className="flex flex-col items-center text-blue-400 hover:text-blue-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Camera className="w-7 h-7" />
           <span className="text-xs mt-1">Kamera</span>
