@@ -41,8 +41,10 @@ function App() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallButton, setShowInstallButton] = useState(false);
-  const [sourceLang, setSourceLang] = useState("de");
-  const [targetLang, setTargetLang] = useState("en");
+  // Language states - currently using fixed languages (de -> en)
+  // Uncomment when implementing language selection UI:
+  // const [sourceLang, setSourceLang] = useState("de");
+  const [targetLang] = useState("en");
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
