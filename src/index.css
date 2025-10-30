@@ -1,6 +1,13 @@
 @import "tailwindcss";
 
-/* Prevent scrolling on html and body */
+/* App-ähnliches Schriftbild */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Prevent scrolling on html and body - Verhindern des "Bouncens" auf Mobilgeräten */
 html, body {
   overflow: hidden;
   position: fixed;

@@ -3,15 +3,25 @@ import { pipeline } from "@huggingface/transformers";
 import { KokoroTTS } from "kokoro-js";
 import type { Status } from "./types";
 
-import Header from "./components/Header";
-import StatusDisplay from "./components/StatusDisplay";
-import RecordButton from "./components/RecordButton";
-import EditableResultCard from "./components/EditableResultCard";
-import { Mic, Volume2, Download } from "./components/icons";
+import { 
+  Mic, 
+  Volume2, 
+  Download, 
+  ArrowRightLeft, 
+  X, 
+  Copy, 
+  Share2, 
+  Maximize2, 
+  Camera, 
+  MessageCircle 
+} from "./components/icons";
 
 // Singleton instances for models to avoid reloading
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let whisperPipeline: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let translationPipeline: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let ttsInstance: any = null;
 
 function App() {
@@ -26,6 +36,7 @@ function App() {
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [downloadedMB, setDownloadedMB] = useState(0);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstallButton, setShowInstallButton] = useState(false);
 
@@ -39,6 +50,7 @@ function App() {
     loadModels();
     
     // Listen for the beforeinstallprompt event
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const handleBeforeInstallPrompt = (e: any) => {
       // Prevent the default install prompt
       e.preventDefault();
@@ -52,7 +64,6 @@ function App() {
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadModels = async () => {
@@ -75,7 +86,7 @@ function App() {
         setLoadingProgress(10);
         whisperPipeline = await pipeline(
           "automatic-speech-recognition",
-          "Xenova/whisper-tiny"
+          "Xenova/whisper-small"
         );
         setDownloadedMB(82);
         setLoadingProgress(33);
@@ -359,94 +370,250 @@ function App() {
     setShowInstallButton(false);
   };
 
+  const handleClear = () => {
+    setTranscription("");
+    setTranslation("");
+    setAudioUrl(null);
+  };
+
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text);
+  };
+
+  const handleShare = async () => {
+    if (navigator.share && translation) {
+      try {
+        await navigator.share({
+          title: 'Übersetzung',
+          text: translation
+        });
+      } catch (err) {
+        console.log('Share failed:', err);
+      }
+    }
+  };
+
+  const handleSwapLanguages = () => {
+    // Tausche Sprachen und Texte
+    const tempText = transcription;
+    setTranscription(translation);
+    setTranslation(tempText);
+  };
+
+  const playTranscriptionAudio = () => {
+    // Spiele Original-Audio ab (wenn vorhanden)
+    if (audioUrl && audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.play();
+    }
+  };
+
   return (
-    <div className="h-screen overflow-hidden bg-[#0a0a0b] text-white flex flex-col p-3">
-      <main className="container mx-auto max-w-lg w-full h-full flex flex-col overflow-hidden">
-        <div className="flex items-center justify-between mb-4 flex-shrink-0">
-          <Header />
-          {showInstallButton && (
-            <button
-              onClick={handleInstallClick}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 rounded-lg text-xs font-medium transition-colors"
-              aria-label="App installieren"
+    <div className="bg-gray-900 text-gray-200 flex flex-col h-screen">
+      {/* 1. Header (Sprachauswahl) */}
+      <header className="flex justify-around items-center p-4 border-b border-gray-700 shadow-md">
+        <button className="text-base font-semibold py-2 px-6 bg-gray-800 rounded-full text-white hover:bg-gray-700 transition-colors">
+          Deutsch
+        </button>
+        
+        {/* Pfeil-Tausch-Icon */}
+        <button 
+          onClick={handleSwapLanguages}
+          className="text-gray-400 hover:text-white transition-colors"
+          aria-label="Sprachen tauschen"
+        >
+          <ArrowRightLeft className="w-6 h-6" />
+        </button>
+        
+        <button className="text-base font-semibold py-2 px-6 bg-gray-800 rounded-full text-white hover:bg-gray-700 transition-colors">
+          Englisch
+        </button>
+      </header>
+
+      {/* Loading Progress */}
+      {showDownloadInfo && status === "loading" && (
+        <div className="mx-4 mt-4 bg-blue-500/10 rounded-xl p-4 border border-blue-500/20">
+          <h3 className="text-sm font-semibold text-blue-300 mb-2">
+            Erstmaliger Download
+          </h3>
+          <p className="text-xs text-gray-400 mb-2">
+            KI-Modelle werden heruntergeladen ({downloadedMB} / 247 MB)
+          </p>
+          <div className="w-full bg-gray-700 rounded-full h-2">
+            <div 
+              className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-300"
+              style={{ width: `${loadingProgress}%` }}
+            />
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            {statusMessage}
+          </p>
+        </div>
+      )}
+
+      {/* Error Display */}
+      {error && (
+        <div className="mx-4 mt-4 bg-red-500/10 rounded-xl p-4 border border-red-500/20">
+          <p className="text-sm text-red-300">{error}</p>
+        </div>
+      )}
+
+      {/* 2. Hauptinhalt (Eingabe- und Ausgabefelder) */}
+      <main className="flex-1 flex flex-col p-4 gap-4 overflow-hidden">
+        {/* Eingabebereich */}
+        <div className="relative flex-1 flex flex-col bg-gray-800 rounded-xl p-4 shadow-lg">
+          {/* 'X' (Löschen) Icon oben rechts */}
+          {transcription && (
+            <button 
+              onClick={handleClear}
+              className="absolute top-4 right-4 text-gray-500 hover:text-white transition-colors z-10"
+              aria-label="Text löschen"
             >
-              <Download className="w-3.5 h-3.5" />
-              <span>Installieren</span>
+              <X className="w-5 h-5" />
             </button>
           )}
-        </div>
 
-        {showDownloadInfo && status === "loading" && (
-          <div className="mb-3 bg-blue-500/5 rounded-xl p-3 border border-blue-500/20 flex-shrink-0">
-            <h3 className="text-sm font-semibold text-blue-300 mb-2">
-              Erstmaliger Download
-            </h3>
-            <p className="text-xs text-slate-400 mb-2">
-              KI-Modelle werden heruntergeladen und lokal gespeichert.
-            </p>
-            
-            {/* Progress Bar */}
-            <div className="w-full bg-slate-800/50 rounded-full h-2 mb-1">
-              <div 
-                className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-300 ease-out"
-                style={{ width: `${loadingProgress}%` }}
-              />
-            </div>
-            <div className="flex justify-between items-center">
-              <p className="text-xs text-slate-500">
-                {downloadedMB} / 247 MB
-              </p>
-              <p className="text-xs text-slate-400 font-medium">
-                {loadingProgress}%
-              </p>
-            </div>
-            
-            <p className="text-xs text-slate-500 mt-2">
-              Danach funktioniert die App komplett offline!
-            </p>
+          {/* Textarea für die Eingabe */}
+          <textarea 
+            value={transcription}
+            onChange={(e) => handleTranscriptionChange(e.target.value)}
+            className="flex-1 bg-transparent text-white text-2xl w-full resize-none focus:outline-none placeholder-gray-500 pr-10" 
+            placeholder="Text eingeben..."
+          />
+          
+          {/* Icons unten (Lautsprecher, Kopieren) */}
+          <div className="flex justify-between items-center pt-2">
+            {/* Lautsprecher */}
+            <button 
+              onClick={playTranscriptionAudio}
+              disabled={!transcription}
+              className="text-gray-400 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              aria-label="Vorlesen"
+            >
+              <Volume2 className="w-6 h-6" />
+            </button>
+            {/* Kopieren */}
+            <button 
+              onClick={() => handleCopy(transcription)}
+              disabled={!transcription}
+              className="text-gray-400 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              aria-label="Kopieren"
+            >
+              <Copy className="w-6 h-6" />
+            </button>
           </div>
-        )}
-
-        <div className="flex-shrink-0">
-          <StatusDisplay
-            status={status}
-            message={statusMessage}
-            error={error}
-          />
         </div>
 
-        <div className="flex-shrink-0">
-          <RecordButton
-            status={status}
-            onMouseDown={startRecording}
-            onMouseUp={stopRecording}
-            onMouseLeave={stopRecording}
-            onTouchStart={handleTouchStart}
-            onTouchEnd={handleTouchEnd}
-          />
-        </div>
-
-        <div className="space-y-3 flex-shrink-0 mt-auto pb-2">
-          <EditableResultCard
-            icon={<Mic className="w-3.5 h-3.5 text-slate-500" />}
-            title="Erkannter Text"
-            text={transcription}
-            variant="transcription"
-            onTextChange={handleTranscriptionChange}
-            placeholder="Warte auf Aufnahme..."
-          />
-          <EditableResultCard
-            icon={<Volume2 className="w-3.5 h-3.5 text-purple-400" />}
-            title="Übersetzung"
-            text={translation}
-            variant="translation"
-            showPlayButton={!!audioUrl}
-            onPlay={playAudio}
-            onTextChange={handleTranslationChange}
-            placeholder="Warte auf Übersetzung..."
-          />
+        {/* Ausgabebereich */}
+        <div className="relative flex-1 flex flex-col bg-gray-800 rounded-xl p-4 shadow-lg">
+          {/* Ausgabe-Text */}
+          <div className="flex-1 text-white text-2xl overflow-y-auto scrollbar-thin">
+            {translation ? (
+              <span>{translation}</span>
+            ) : (
+              <span className="text-gray-400">
+                {status === "loading" ? "Modelle werden geladen..." : 
+                 status === "recording" ? "Aufnahme läuft..." :
+                 status === "processing" ? "Verarbeite..." : 
+                 "Übersetzung..."}
+              </span>
+            )}
+          </div>
+          
+          {/* Icons unten (Lautsprecher, Kopieren, Teilen, Vollbild) */}
+          <div className="flex justify-between items-center pt-2">
+            <div className="flex gap-6">
+              {/* Lautsprecher */}
+              <button 
+                onClick={playAudio}
+                disabled={!audioUrl}
+                className="text-gray-400 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                aria-label="Übersetzung vorlesen"
+              >
+                <Volume2 className="w-6 h-6" />
+              </button>
+              {/* Kopieren */}
+              <button 
+                onClick={() => handleCopy(translation)}
+                disabled={!translation}
+                className="text-gray-400 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                aria-label="Übersetzung kopieren"
+              >
+                <Copy className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="flex gap-6">
+              {/* Teilen */}
+              <button 
+                onClick={handleShare}
+                disabled={!translation}
+                className="text-gray-400 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                aria-label="Teilen"
+              >
+                <Share2 className="w-6 h-6" />
+              </button>
+              {/* Vollbild */}
+              {showInstallButton && (
+                <button 
+                  onClick={handleInstallClick}
+                  className="text-gray-400 hover:text-white transition-colors"
+                  aria-label="Als App installieren"
+                >
+                  <Download className="w-6 h-6" />
+                </button>
+              )}
+              <button 
+                disabled
+                className="text-gray-400 opacity-30 cursor-not-allowed"
+                aria-label="Vollbild"
+              >
+                <Maximize2 className="w-6 h-6" />
+              </button>
+            </div>
+          </div>
         </div>
       </main>
+
+      {/* 3. Bottom Navigation (Aktionsleiste) */}
+      <nav className="flex justify-around items-center p-4 border-t border-gray-700 bg-gray-900">
+        {/* Kamera */}
+        <button 
+          disabled
+          className="flex flex-col items-center text-gray-500 cursor-not-allowed opacity-50"
+        >
+          <Camera className="w-7 h-7" />
+          <span className="text-xs mt-1">Kamera</span>
+        </button>
+        
+        {/* Mikrofon (Hauptaktion) */}
+        <button 
+          onMouseDown={startRecording}
+          onMouseUp={stopRecording}
+          onMouseLeave={stopRecording}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+          disabled={status !== "ready" && status !== "recording"}
+          className={`flex flex-col items-center transition-all transform ${
+            status === "recording" 
+              ? "text-red-400 scale-110" 
+              : "text-blue-400 hover:text-blue-300 scale-110"
+          } disabled:opacity-50 disabled:cursor-not-allowed`}
+        >
+          <Mic className="w-8 h-8" />
+          <span className="text-xs mt-1">
+            {status === "recording" ? "Recording..." : "Mikrofon"}
+          </span>
+        </button>
+        
+        {/* Konversation */}
+        <button 
+          disabled
+          className="flex flex-col items-center text-gray-500 cursor-not-allowed opacity-50"
+        >
+          <MessageCircle className="w-7 h-7" />
+          <span className="text-xs mt-1">Konversation</span>
+        </button>
+      </nav>
     </div>
   );
 }
